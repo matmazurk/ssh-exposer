@@ -35,9 +35,22 @@ func Run(ctx context.Context, wg *sync.WaitGroup, authToken string, publish Publ
 	return nil
 }
 
+var unrecoverableErrs = []string{
+	"ERR_NGROK_108", // free tier tunnel already ongoing somewhere else
+	"ERR_NGROK_302", // user unregistered
+}
+
 func getTunnel(ctx context.Context, authToken string) (net.Listener, error) {
 	isUnrecoverable := func(err error) bool {
-		return err != nil && strings.Contains(err.Error(), "ERR_NGROK_108")
+		if err == nil {
+			return false
+		}
+		for _, ue := range unrecoverableErrs {
+			if strings.Contains(err.Error(), ue) {
+				return true
+			}
+		}
+		return false
 	}
 
 	const retries = 100
@@ -86,6 +99,8 @@ func listen(ctx context.Context, l net.Listener, wg *sync.WaitGroup) error {
 
 			if err := pipeIncomingConnection(ctx, conn); err != nil {
 				log.Println(err)
+				conn.Close()
+				return
 			}
 
 			log.Printf("forwarding from %s finished\n", conn.RemoteAddr())
